@@ -14,12 +14,21 @@ services:
       - wordpress:/var/www/html
     restart: always
   mariadb:
+    build:
+      context: ./requirements/mariadb
+    image: mariadb
     container_name: mariadb
     networks:
       - inception-net
     volumes:
       - mariadb:/var/lib/mysql
     restart: always
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+    secrets:
+      - db_root_password
+      - db_password
 
 volumes:
   wordpress:
@@ -39,3 +48,11 @@ networks:
   inception-net:
     name: inception-net
     driver: bridge
+
+secrets:
+  db_root_password:
+    file: ../secrets/db_root_password.txt
+  db_password:
+    file: ../secrets/db_password.txt
+  credentials:
+    file: ../secrets/credentials.txt
