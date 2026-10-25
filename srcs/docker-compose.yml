@@ -1,0 +1,41 @@
+services:
+  nginx:
+    container_name: nginx
+    networks:
+      - inception-net
+    volumes:
+      - wordpress:/var/www/html
+    restart: always
+  wordpress:
+    container_name: wordpress
+    networks:
+      - inception-net
+    volumes:
+      - wordpress:/var/www/html
+    restart: always
+  mariadb:
+    container_name: mariadb
+    networks:
+      - inception-net
+    volumes:
+      - mariadb:/var/lib/mysql
+    restart: always
+
+volumes:
+  wordpress:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /home/gabach/data/wordpress
+  mariadb:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /home/gabach/data/mariadb
+
+networks:
+  inception-net:
+    name: inception-net
+    driver: bridge
