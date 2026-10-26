@@ -7,12 +7,23 @@ services:
       - wordpress:/var/www/html
     restart: always
   wordpress:
+    build:
+	  context: ./requirements/wordpress
+    image: wordpress
     container_name: wordpress
     networks:
       - inception-net
     volumes:
       - wordpress:/var/www/html
     restart: always
+    environment:
+	  DOMAIN_NAME: ${DOMAIN_NAME}
+	  MYSQL_DATABASE: ${MYSQL_DATABASE}
+	  MYSQL_USER: ${MYSQL_USER}
+	  MYSQL_HOST: ${MYSQL_HOST}
+    secrets:
+	  - db_password
+	  - credentials
   mariadb:
     build:
       context: ./requirements/mariadb
