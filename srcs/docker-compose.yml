@@ -1,14 +1,21 @@
 services:
   nginx:
+    build:
+      context: ./requirements/nginx
+    image: nginx
     container_name: nginx
     networks:
       - inception-net
     volumes:
       - wordpress:/var/www/html
     restart: always
+    depends_on:
+      - wordpress
+    ports:
+      - "443:443"
   wordpress:
     build:
-	  context: ./requirements/wordpress
+      context: ./requirements/wordpress
     image: wordpress
     container_name: wordpress
     networks:
@@ -16,14 +23,16 @@ services:
     volumes:
       - wordpress:/var/www/html
     restart: always
+    depends_on:
+      - mariadb
     environment:
-	  DOMAIN_NAME: ${DOMAIN_NAME}
-	  MYSQL_DATABASE: ${MYSQL_DATABASE}
-	  MYSQL_USER: ${MYSQL_USER}
-	  MYSQL_HOST: ${MYSQL_HOST}
+      DOMAIN_NAME: ${DOMAIN_NAME}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_HOST: ${MYSQL_HOST}
     secrets:
-	  - db_password
-	  - credentials
+      - db_password
+      - credentials
   mariadb:
     build:
       context: ./requirements/mariadb
