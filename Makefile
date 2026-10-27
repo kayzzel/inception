@@ -23,7 +23,7 @@ down: check_docker
 	$(COMPOSE) down
 
 clean: down
-	docker rmi $(IMAGES)
+	-docker rmi $(IMAGES)
 
 fclean: clean
 	$(COMPOSE) down -v

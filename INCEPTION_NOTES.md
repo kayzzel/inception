@@ -195,6 +195,8 @@ Debian's default binds `127.0.0.1` — unreachable from other containers. `0.0.0
 3. First run: `chown -R mysql:mysql /var/lib/mysql`, `mariadb-install-db` (writes system tables **into the volume** — the volume mounts over the image's data dir, hiding anything the package put there), start a **temporary daemon** on the unix socket only (`--skip-networking`), wait in an `until` loop until it accepts connections, then run SQL: set root password, `CREATE DATABASE`, `CREATE USER 'gabach'@'%'` (the `%` = reachable from other hosts/containers, not just localhost), `GRANT ALL PRIVILEGES ON wordpress.*`, `FLUSH PRIVILEGES`.
 4. `kill` + `wait` the temp daemon (clean flush of the grant tables), then **`exec mariadbd --user=mysql`** → the daemon *becomes PID 1*.
 
+**Why the Dockerfile must `rm -rf /var/lib/mysql`:** Debian's `mariadb-server` package postinst initializes the data dir **at package-install time inside the image**. And **named volumes have a copy-on-first-use behavior**: a fresh empty named volume mounted over a path that has content in the image gets that content *copied in* (bind mounts never do this). Without the `rm`, every "fresh" volume arrives pre-populated with the package's default database (deterministic LSN=44760 — the telltale), the entrypoint's `[ -d /var/lib/mysql/mysql ]` guard always sees "already initialized", init never runs, and the WP user is never created. The `rm` guarantees a fresh volume is truly empty. (Debug tip learned the hard way: a *deterministic identical LSN* on every "fresh" start = you're not actually starting fresh.)
+
 **OS user vs DB user (classic trap):** `--user=mysql` is a **Linux account** (`/etc/passwd`) — the privilege-drop mechanism so the daemon doesn't run as root. `$DB_USER` (`gabach`) is a **MariaDB account** — a row in the grant tables used to authenticate clients. One lives in `/etc/passwd`, the other in the database. They never meet.
 
 ---
@@ -566,6 +568,12 @@ A: `build:` builds the image from my Dockerfile and tags it with the `image:` na
 
 **Q: How do I check what image a container is running?**
 A: `docker ps` / `docker inspect <c>` (`.Config.Image`), `docker images` lists local ones. Each must be the one built from my `requirements/<service>/Dockerfile`, not something pulled from Docker Hub.
+
+**Q: Why do you remove /var/lib/mysql in the mariadb Dockerfile?**
+A: The Debian package initializes the data dir at install time, so it exists inside the image. Named volumes copy image content into a fresh volume on first mount — so every "new" volume arrived pre-populated with the package's default database, my entrypoint's "already initialized" guard always fired, and my user creation never ran. Removing the dir from the image makes fresh volumes truly empty, so first-boot init actually happens.
+
+**Q: I connected as root with -p and a password — did that prove the root password works?**
+A: No — a trap. Debian's root@localhost uses the `unix_socket` auth plugin: when the connecting process is the OS root (which `docker exec` is), authentication succeeds and the password is ignored. The proof the password works is connecting over TCP from another container, or running `ALTER USER` (which our init does, switching root to password auth).
 
 ### Makefile
 
