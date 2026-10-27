@@ -4,8 +4,11 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         ca-certificates curl \
         php-fpm php-mysql php-curl php-gd php-xml php-mbstring php-zip php-intl \
-        less && \
+        mariadb-client less && \
     rm -rf /var/lib/apt/lists/*
+
+# mariadb-client: wp-cli's `wp db check` shells out to the external
+# mysqlcheck binary (it does not use the PHP mysqli driver)
 
 # WordPress core - download, unpack, clean, all in ONE layer
 RUN curl -fsSL https://wordpress.org/latest.tar.gz -o /tmp/wordpress.tar.gz && \
