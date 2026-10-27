@@ -2,8 +2,9 @@ FROM debian:bookworm
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
+        ca-certificates curl \
         php-fpm php-mysql php-curl php-gd php-xml php-mbstring php-zip php-intl \
-        curl less && \
+        less && \
     rm -rf /var/lib/apt/lists/*
 
 # WordPress core - download, unpack, clean, all in ONE layer
