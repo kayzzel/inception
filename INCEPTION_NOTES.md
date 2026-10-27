@@ -650,7 +650,23 @@ A: `curl -kI https://gabach.42.fr` (reachable, cert accepted with -k), `curl -kv
 
 ---
 
-## 13. What remains to build
+## 13. Field lessons from the first bring-up (real bugs, real fixes)
+
+Ordered as they appeared; each one is a Docker/Linux concept in disguise:
+
+1. **`curl: (77) error setting certificate file`** (wordpress build) — minimal `debian:bookworm` ships no CA bundle; `ca-certificates` must be installed before any `RUN` that downloads over HTTPS.
+2. **`tar: /var/www: Cannot open`** — `/var/www` is a web-server convention, not part of a minimal base image; `mkdir -p` before `tar -C`.
+3. **mariadb crash-loop: `Bind on unix socket: No such file or directory`** — the socket dir `/run/mysqld` was created by the entrypoint only on the init path; a restart takes the fast path with a fresh container filesystem → missing dir. Anything needed on *every* boot must live in the image (Dockerfile), not in one branch of a script.
+4. **`sudo rm -rf` in fclean** — volume files are owned by `www-data` (UID 33); erasing them from the host legitimately needs elevated rights. Docker-group membership is root-equivalent anyway — explicit sudo is the honest version of that escalation.
+5. **The mariadb "fresh" volume that was never fresh** — Debian's package initializes `/var/lib/mysql` at install time *inside the image*, and named volumes copy image content on first mount. The deterministic `LSN=44760` on every boot was the fingerprint. Fix: `rm -rf /var/lib/mysql` in the Dockerfile. Lesson: a deterministic identical value on supposedly-independent runs = you're not actually starting fresh.
+6. **`unix_socket` auth illusion** — `mariadb -u root -p` succeeds with a wrong password when you're OS root (socket plugin ignores the password). Only a TCP login from another container proves credentials.
+7. **`wp db check` silently failing forever** — wp-cli's `db check` shells out to the external `mysqlcheck` binary (not PHP's mysqli); the wordpress image had no MySQL client. Fix: `mariadb-client` in the Dockerfile. Lesson: know which layer a tool actually uses, and never `&>/dev/null` the only diagnostic output of a loop.
+8. **`--skip-email` on `wp user create`** — unsupported flag → second user never created → and because user creation lived inside the "first boot only" block, it would never retry. Fix: per-resource idempotent guards (`wp user get` before create). Lesson: idempotent, per-resource checks beat one big "first run" flag.
+9. **php-fpm `value is NULL for a ZEND_INI_PARSER_ENTRY`** — www.conf comment lines corrupted by the transport: fragments that lost their leading `;` (some starting with spaces, invisible to `grep '^[a-zA-Z]'`). The error's **line number was the whole answer** from the start; a no-op repair script (unconditional "repaired" print) masked that nothing changed — revealed only by the build reporting `CACHED` and compose saying `Started` instead of `Recreated`. Lessons: (a) trust the machine's line numbers over your own theory; (b) make fix scripts assert their changes; (c) validate configs parser-style (only comments, blanks, `[sections]`, `name = value` lines allowed); (d) learn to read `CACHED`/`Recreated`/`Started` in build+compose output as change-detection signals.
+
+Also: the `io_uring EPERM` warnings in mariadb logs are harmless (kernel disables io_uring; MariaDB falls back to libaio) — noise, don't chase.
+
+## 14. What remains to build
 
 1. **Documentation** (Phase 8): README.md with the exact italic first line `*This project has been created as part of the 42 curriculum by gabach.*` + Description, Instructions, Resources (including AI usage description), and the four comparisons (VM vs Docker, secrets vs env vars, docker network vs host network, volumes vs bind mounts); USER_DOC.md (admin/end-user view); DEV_DOC.md (developer view).
-2. **Runtime verification in the VM** of everything above (all builds, first boots, PID 1 checks, end-to-end curl, and `make re`).
+2. **Final verification battery + `make re`** end-to-end from a clean state, and a browser login to `https://gabach.42.fr/wp-admin` as `gabach`.
