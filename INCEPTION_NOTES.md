@@ -279,13 +279,90 @@ server {
 
 ---
 
-## 7. The request path (say it out loud until it flows)
+## 7. The Makefile
+
+The subject requires the Makefile to be the **only entry point**: a bare `make` on a clean clone must set up the entire application. House style follows the pac-man Makefile: `#---` section headers, a `VARIABLES` block, a `.PHONY` list, `check_*` prerequisite targets, and a documented `help`.
+
+```make
+#-------------------------------- VARIABLES ----------------------------------#
+
+COMPOSE		=	docker compose -f srcs/docker-compose.yml
+
+IMAGES		=	nginx wordpress mariadb
+
+DATA_DIRS	=	/home/gabach/data/wordpress /home/gabach/data/mariadb
+
+#-------------------------------- RULES --------------------------------------#
+
+.PHONY: all up down clean fclean re check_docker help
+
+all: check_docker
+	@mkdir -p $(DATA_DIRS)
+	$(COMPOSE) up -d --build
+
+up: check_docker
+	@mkdir -p $(DATA_DIRS)
+	$(COMPOSE) up -d
+
+down: check_docker
+	$(COMPOSE) down
+
+clean: down
+	docker rmi $(IMAGES)
+
+fclean: clean
+	$(COMPOSE) down -v
+	rm -rf $(DATA_DIRS)
+
+re: fclean all
+
+check_docker:
+	@command -v docker >/dev/null 2>&1 || { \
+		echo "Error: docker is not installed."; \
+		echo "Install it via: https://docs.docker.com/engine/install/"; \
+		exit 1; \
+	}
+	@docker compose version >/dev/null 2>&1 || { \
+		echo "Error: docker compose (v2 plugin) is not installed."; \
+		echo "Install it via: https://docs.docker.com/compose/install/"; \
+		exit 1; \
+	}
+```
+
+**Why `mkdir -p $(DATA_DIRS)` in `all`/`up`:** the volumes use `driver_opts` with a `device` path — Docker requires that path to **exist before volume creation**, otherwise `up` fails with "error while creating mount source path". Since bare `make` must do the full setup on a fresh clone/VM, the Makefile guarantees the directories exist (idempotent, harmless if already there).
+
+### Make fundamentals (know these)
+
+- **Rules**: `target: prerequisites` followed by an indented **recipe**. Make builds prerequisites first, then runs the recipe.
+- **Recipe lines MUST start with a TAB** — the one place in this project where tabs are *mandatory* (opposite of the YAML rules). The classic `*** missing separator` error = spaces instead of a tab.
+- **The first rule is the default**: `make` with no arguments runs `all` — that's why `all` comes first, and why it does the full setup (subject requirement).
+- **`.PHONY`** declares targets that are commands, not files. Without it, a target named `clean` would be skipped if a file called `clean` existed in the directory. Every target here is phony.
+- **`@` prefix** suppresses echoing the command itself before running it (cosmetic quiet lines).
+- **Variables** (`COMPOSE`, `IMAGES`) used as `$(NAME)` keep the file DRY — one place to change the compose path or the image list.
+- **`re: fclean all`** — two prerequisites run *in order*: destroy everything, then rebuild from zero. The 42 idiom; it's the evaluator's end-to-end test (`make re` ≡ `make clean && make` from fresh).
+
+### Target ladder — what each one destroys
+
+| Target | Containers | Network | Images | Volumes | Data on disk (`/home/gabach/data`) |
+|---|---|---|---|---|---|
+| `down` | removed | removed | kept | kept | kept |
+| `clean` (= down + `docker rmi`) | removed | removed | **removed** | kept | kept |
+| `fclean` (= clean + `down -v` + `rm -rf`) | removed | removed | removed | **removed** | **erased** |
+
+- Strictly increasing destruction — be able to recite the ladder.
+- **Why `fclean` erases the data dirs too**: removing only the volume would leave the populated backing directories on disk; the next `up` re-creates the volume over the *same* dirs, so MariaDB's and WordPress's first-boot guards would silently restore the old site — `fclean` would promise a full reset but deliver none. Wiping the dirs makes `make re` a true from-zero rebuild.
+- **`--build` on `all`** — forces rebuild from the Dockerfiles so evaluators see images built by us, not pulled (subject grading point).
+- **`check_docker`** — pac-man's `check_uv` pattern: verifies `docker` and the compose v2 plugin exist, fails with a readable install hint instead of a cryptic error; prerequisite of every running target.
+
+---
+
+## 8. The request path (say it out loud until it flows)
 
 Browser → `https://gabach.42.fr` → `/etc/hosts` resolves the name to the VM's IP → Docker's published host port 443 → nginx container → TLS handshake (self-signed cert, TLSv1.2/1.3) → request `/` → nginx (static root = shared volume) → `.php` request → `location ~ \.php$` → `fastcgi_pass wordpress:9000` → Docker embedded DNS on inception-net → php-fpm worker → executes `/var/www/html/index.php` → WordPress boots → `mysqli` connects to `mariadb:3306` (same network, same DNS mechanism) → HTML rendered → back up the chain.
 
 ---
 
-## 8. Key Docker concepts (general knowledge)
+## 9. Key Docker concepts (general knowledge)
 
 - **Image vs container**: image = frozen, read-only template (like a class); container = a running instance of it (like an object), with its own PID namespace, network stack, and a writable layer on top of the image layers.
 - **Layers & cache**: every Dockerfile instruction creates a layer; Docker reuses cached layers when nothing changed. Order matters: stable steps first (apt), changing things later (COPY of your code). `apt-get update` + `install` + cleanup must share ONE `RUN` (separate layers → stale/missing package lists; deleting in a later layer doesn't shrink earlier ones — layers only accumulate).
@@ -300,7 +377,7 @@ Browser → `https://gabach.42.fr` → `/etc/hosts` resolves the name to the VM'
 
 ---
 
-## 9. Useful commands
+## 10. Useful commands
 
 ```bash
 # build & run the whole stack
@@ -349,7 +426,7 @@ docker compose -f srcs/docker-compose.yml down -v
 
 ---
 
-## 10. Defense Q&A — questions an evaluator may ask
+## 11. Defense Q&A — questions an evaluator may ask
 
 ### Dockerfile & images
 
@@ -490,6 +567,32 @@ A: `build:` builds the image from my Dockerfile and tags it with the `image:` na
 **Q: How do I check what image a container is running?**
 A: `docker ps` / `docker inspect <c>` (`.Config.Image`), `docker images` lists local ones. Each must be the one built from my `requirements/<service>/Dockerfile`, not something pulled from Docker Hub.
 
+### Makefile
+
+**Q: What does running `make` with no arguments do?**
+A: The first rule in the file is the default target — `all`. It runs `check_docker`, then `docker compose -f srcs/docker-compose.yml up -d --build`: builds the three images from my Dockerfiles and starts the whole stack. The subject requires bare `make` to do the full setup.
+
+**Q: Why `--build` on `up`?**
+A: To force docker compose to rebuild the images from my Dockerfiles even if images with those names already exist — so the evaluator sees the stack built by my code, not cached or pulled images. It's the subject's "no ready-made images" rule made visible.
+
+**Q: What is the difference between `clean` and `fclean`?**
+A: A destruction ladder: `down` removes containers + network (keeps images and volumes); `clean` additionally removes the built images (`docker rmi nginx wordpress mariadb`); `fclean` additionally removes the volumes (`down -v`) and erases the data directories on disk — which destroys the site and database state entirely. `re` = `fclean` + `all`: full rebuild from zero.
+
+**Q: Why is `.PHONY` needed?**
+A: It declares that a target is a command, not a file. Without it, if a file named e.g. `clean` ever existed in the directory, make would consider the target up-to-date and skip it. All my targets are phony.
+
+**Q: Why are recipe lines indented with tabs?**
+A: Make requires it — the tab is how it distinguishes recipe lines from other Makefile syntax. Using spaces gives `*** missing separator`. It's the one place in this project where tabs are mandatory (YAML forbids them).
+
+**Q: Where does the data go after `make fclean`?**
+A: Everything is gone: the named volumes are removed from Docker, **and** the backing directories under `/home/gabach/data/` are erased (`rm -rf` in the recipe) — otherwise the next `up` would re-create the volumes over the same still-populated dirs and the first-boot guards would silently restore the old site. The next `make all` re-creates the directories (`mkdir -p`) and re-initializes everything from scratch.
+
+**Q: Why does your Makefile run `mkdir -p` on the data directories?**
+A: The volumes use `driver_opts` with a `device` path, and Docker requires that path to exist *before* creating the volume — a fresh clone or fresh VM without `/home/gabach/data/{wordpress,mariadb}` would fail with "error while creating mount source path". Since bare `make` must perform the full setup, the Makefile guarantees the directories exist; `mkdir -p` is idempotent so repeated runs are harmless.
+
+**Q: How do you prove the whole project works from scratch?**
+A: `make re` (or from a clean clone: `make`), then `curl -kI https://gabach.42.fr` returns 200/30x and all three containers run — the evaluator's exact test.
+
 ### General concepts
 
 **Q: What is the difference between a container and a virtual machine?**
@@ -518,7 +621,7 @@ A: `curl -kI https://gabach.42.fr` (reachable, cert accepted with -k), `curl -kv
 
 ---
 
-## 11. Final checklist (from the guide — run before asking for evaluation)
+## 12. Final checklist (from the guide — run before asking for evaluation)
 
 - [ ] Everything runs inside a VM.
 - [ ] All config in `srcs/`, Makefile at root, `make` does the full setup.
@@ -536,8 +639,7 @@ A: `curl -kI https://gabach.42.fr` (reachable, cert accepted with -k), `curl -kv
 
 ---
 
-## 12. What remains to build
+## 13. What remains to build
 
-1. **Makefile** (Phase 7): `all`, `up`, `down`, `clean`/`fclean`, `re` targets driving `docker compose -f srcs/docker-compose.yml`; `.PHONY`; a bare `make` must do the full setup.
-2. **Documentation** (Phase 8): README.md with the exact italic first line `*This project has been created as part of the 42 curriculum by gabach.*` + Description, Instructions, Resources (including AI usage description), and the four comparisons (VM vs Docker, secrets vs env vars, docker network vs host network, volumes vs bind mounts); USER_DOC.md (admin/end-user view); DEV_DOC.md (developer view).
-3. **Runtime verification in the VM** of everything above (all builds, first boots, PID 1 checks, end-to-end curl).
+1. **Documentation** (Phase 8): README.md with the exact italic first line `*This project has been created as part of the 42 curriculum by gabach.*` + Description, Instructions, Resources (including AI usage description), and the four comparisons (VM vs Docker, secrets vs env vars, docker network vs host network, volumes vs bind mounts); USER_DOC.md (admin/end-user view); DEV_DOC.md (developer view).
+2. **Runtime verification in the VM** of everything above (all builds, first boots, PID 1 checks, end-to-end curl, and `make re`).
