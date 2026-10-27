@@ -29,7 +29,7 @@ if [ ! -f "${WP_PATH}/wp-config.php" ]; then
       --skip-check
 fi
 
-# --- first-run installation: wait for MariaDB, install, create both users ---
+# --- first-run installation: wait for MariaDB, then install ---
 if ! wp core is-installed "${WP[@]}"; then
   until wp db check "${WP[@]}" &>/dev/null; do
       echo "waiting for database..."
@@ -42,11 +42,16 @@ if ! wp core is-installed "${WP[@]}"; then
       --admin_user="${ADMIN_LOGIN}" \
       --admin_password="${ADMIN_PASSWORD}" \
       --admin_email="gabach@42.fr" --skip-email
+fi
 
+# --- second WordPress user (subject requires two users) ---
+# kept idempotent and OUTSIDE the install block: if user creation ever
+# fails, it retries on the next boot instead of being skipped forever
+if ! wp user get "regular-gabach" "${WP[@]}" &>/dev/null; then
   wp user create "${WP[@]}" \
       "regular-gabach" "regular@42.fr" \
       --user_pass="inception" \
-      --role=subscriber --skip-email
+      --role=subscriber
 fi
 
 # --- become the daemon: php-fpm master is now PID 1 ---
