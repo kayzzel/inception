@@ -9,6 +9,7 @@ RUN apt-get update && \
 
 # WordPress core - download, unpack, clean, all in ONE layer
 RUN curl -fsSL https://wordpress.org/latest.tar.gz -o /tmp/wordpress.tar.gz && \
+    mkdir -p /var/www && \
     tar -xzf /tmp/wordpress.tar.gz -C /var/www/ && \
     rm /tmp/wordpress.tar.gz && \
     chown -R www-data:www-data /var/www/wordpress
