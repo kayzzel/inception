@@ -590,6 +590,9 @@ A: Everything is gone: the named volumes are removed from Docker, **and** the ba
 **Q: Why does your Makefile run `mkdir -p` on the data directories?**
 A: The volumes use `driver_opts` with a `device` path, and Docker requires that path to exist *before* creating the volume — a fresh clone or fresh VM without `/home/gabach/data/{wordpress,mariadb}` would fail with "error while creating mount source path". Since bare `make` must perform the full setup, the Makefile guarantees the directories exist; `mkdir -p` is idempotent so repeated runs are harmless.
 
+**Q: Why does `fclean` use `sudo rm -rf`?**
+A: The volume's files are owned by `www-data` (UID 33) — required, because php-fpm workers run as that user and WordPress must write uploads (removing the chown would break the site). Erasing files owned by another UID legitimately needs elevated rights. I do it explicitly with `sudo` rather than hiding the same escalation inside a privileged container (`docker run --rm -v ... mariadb rm ...` — which works, but requires the image to still exist and performs the identical root-equivalent operation less transparently; note docker-group membership is itself root-equivalent).
+
 **Q: How do you prove the whole project works from scratch?**
 A: `make re` (or from a clean clone: `make`), then `curl -kI https://gabach.42.fr` returns 200/30x and all three containers run — the evaluator's exact test.
 

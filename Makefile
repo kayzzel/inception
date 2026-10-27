@@ -27,7 +27,7 @@ clean: down
 
 fclean: clean
 	$(COMPOSE) down -v
-	rm -rf $(DATA_DIRS)
+	sudo rm -rf $(DATA_DIRS)
 
 re: fclean all
 
